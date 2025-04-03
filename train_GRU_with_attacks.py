@@ -200,10 +200,10 @@ def train_model(model, X_train, y_train, X_test, y_test, optimizer, num_epochs=1
 
 
 # Train the model on original data first
-model = train_model(model, X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor, optimizer, num_epochs=10)
+# model = train_model(model, X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor, optimizer, num_epochs=10)
 
 
-def fgsm_attack(model, sequence, target_label, epsilon=0.01):
+def fgsm_attack(model, sequence, target_label, epsilon=0.01, num_tokens=4):
     """
     Generates an adversarial example by perturbing token embeddings using FGSM.
     
@@ -349,6 +349,9 @@ def lm_fgsm_attack(model, sequence, target_label, lm_model, epsilon=0.01, perple
 
 
 
+
+# We will need to modify the following training and evaluation loops to incorporate the attacks.
+
 # Assuming we already have a trained model after running the original training code
 # Evaluate model on the original data
 def evaluate_adversarial_attack(model, X_train, y_train, attack_fn, epsilon=0.01, num_tokens=4):
@@ -403,4 +406,15 @@ for attack in attacks:
 import pandas as pd
 results_df = pd.DataFrame(results)
 import ace_tools as tools; tools.display_dataframe_to_user(name="Adversarial Attack Evaluation Results", dataframe=results_df)
+
+
+# Epoch 1/10, Training Loss: 0.7267070061457567                                                                                                                                                
+# Epoch 1/10, Train Accuracy: 54.62%, Train Loss: 0.6891
+# Epoch 1/10, Test Accuracy: 56.74%, Test Loss: 0.6842
+# Model saved as model_epoch_1.pth
+
+# Epoch 2/10, Training Loss: 0.714107902439741                                                                                                                                                 
+# Epoch 2/10, Train Accuracy: 54.62%, Train Loss: 0.6887
+# Epoch 2/10, Test Accuracy: 56.74%, Test Loss: 0.6852
+# Model saved as model_epoch_2.pth
 
