@@ -233,7 +233,7 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=50):
             patience_counter = 0
             best_model_state = model.state_dict().copy()
             # Save the best model
-            save_model(model, f"best_model_epoch_{epoch+1}.pth")
+            save_model(model, f"best_GRU_epoch_{epoch+1}.pth")
         else:
             patience_counter += 1
             print(f"No improvement for {patience_counter} epochs")
