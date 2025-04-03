@@ -57,25 +57,7 @@ def preprocess_rosbank_data(df):
     return padded_X_sequences, padded_y_sequences
 
 
-# Example: Load the dataset from Hugging Face
-train_dataset = load_dataset("dllllb/rosbank-churn", "train")
-train_data = train_dataset['train']
-df_train = pd.DataFrame(train_data)
 
-# Simple 65/35 split as requested
-train_df, test_df = train_test_split(df_train, test_size=0.35, random_state=42)
-
-# Preprocess each dataset
-X_train_tensor, y_train_tensor = preprocess_rosbank_data(train_df)
-X_test_tensor, y_test_tensor = preprocess_rosbank_data(test_df)
-
-# Create DataLoaders for batched training
-batch_size = 1024
-train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
-
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 # Define Bidirectional GRU Model as per the paper specification
 class BidirectionalGRUClassifier(nn.Module):
@@ -251,7 +233,26 @@ def train_model(model, train_loader, test_loader, optimizer, num_epochs=50):
     print(f"Final Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy*100:.2f}%")
     
     return model
+if __name__=='__main__':
+    # Example: Load the dataset from Hugging Face
+    train_dataset = load_dataset("dllllb/rosbank-churn", "train")
+    train_data = train_dataset['train']
+    df_train = pd.DataFrame(train_data)
 
-# Train the model with batching and early stopping
-print("Starting training...")
-model = train_model(model, train_loader, test_loader, optimizer, num_epochs=50)
+    # Simple 65/35 split as requested
+    train_df, test_df = train_test_split(df_train, test_size=0.35, random_state=42)
+
+    # Preprocess each dataset
+    X_train_tensor, y_train_tensor = preprocess_rosbank_data(train_df)
+    X_test_tensor, y_test_tensor = preprocess_rosbank_data(test_df)
+
+    # Create DataLoaders for batched training
+    batch_size = 1024
+    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+    test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    # Train the model with batching and early stopping
+    print("Starting training...")
+    model = train_model(model, train_loader, test_loader, optimizer, num_epochs=50)
