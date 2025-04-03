@@ -110,14 +110,14 @@ X_test_tensor = X_test_tensor[:50]
 y_test_tensor = y_test_tensor[:50]
 # Create and train the model
 input_shape = X_train_tensor.shape[1:]  # Shape of the input data
-model = models.load_model('best_model.h5')  # Replace with your saved model path
+model = models.load_model('GRU_model.h5')  # Replace with your saved model path
 
 # Evaluate the model on original test data
 original_loss, original_accuracy = model.evaluate(X_test_tensor, y_test_tensor)
 print(f"Original Test Accuracy: {original_accuracy * 100:.2f}%")
 
 # Perform FGSM attack on the test data
-epsilon = 1 
+epsilon = 0.1 
 num_steps = 30
 X_adv = fgsm_attack(model, X_test_tensor, y_test_tensor, epsilon, num_steps)
 
