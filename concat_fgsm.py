@@ -64,134 +64,89 @@ def preprocess_rosbank_data(df):
 
 def concat_fgsm_attack_seq(model, X, y, epsilon=0.1, num_steps=30, num_random_transactions=5, random_seed=42):
     """
-    Performs the Concat FGSM attack by adding random transactions to the end of the original sequence
-    and then applying FGSM only on these added transactions.
+    Concat FGSM [seq] - Sequential version with proper variable handling
     """
     np.random.seed(random_seed)
     tf.random.set_seed(random_seed)
     
     batch_size, seq_length, feature_dim = X.shape
+    feature_range = (-3.0, 3.0)  # For standardized data
     
-    # Create a copy of the original data
-    X_extended = np.zeros((batch_size, seq_length + num_random_transactions, feature_dim))
-    X_extended[:, :seq_length, :] = X  # Copy original sequences
+    # Initialize with original + space for additions
+    X_adv = np.concatenate([
+        X,
+        np.random.uniform(*feature_range, size=(batch_size, num_random_transactions, feature_dim))
+    ], axis=1)
     
-    # Initialize random transactions at the end
-    feature_mins = np.min(X, axis=(0, 1))
-    feature_maxs = np.max(X, axis=(0, 1))
-    
-    for i in range(batch_size):
-        for j in range(num_random_transactions):
-            for k in range(feature_dim):
-                X_extended[i, seq_length + j, k] = np.random.uniform(
-                    feature_mins[k], feature_maxs[k]
-                )
-    
-    # Convert to a trainable Variable
-    X_extended_tensor = tf.Variable(X_extended, dtype=tf.float32, trainable=True)
+    # Convert to Variable
+    X_adv_var = tf.Variable(X_adv, dtype=tf.float32)
     y_tensor = tf.convert_to_tensor(y, dtype=tf.int32)
     
-    for step in tqdm(range(num_steps)):
-        with tf.GradientTape() as tape:
-            # Get predictions (using the variable's value)
-            predictions = model(X_extended_tensor.value())
-            loss = tf.keras.losses.sparse_categorical_crossentropy(y_tensor, predictions)
+    # Add and perturb one transaction at a time
+    for k in range(num_random_transactions):
+        pos = seq_length + k  # Position to perturb
         
-        # Compute gradients w.r.t. the entire tensor
-        gradients = tape.gradient(loss, X_extended_tensor)
-        
-        if gradients is None:
-            raise ValueError("Gradients are None! Check model architecture and input types.")
-        
-        # Only perturb the added transactions
-        added_gradients = gradients[:, seq_length:, :]
-        perturbations = tf.sign(added_gradients)
-        
-        # Update only the added part
-        updated_added = X_extended_tensor[:, seq_length:, :] + epsilon * perturbations
-        updated_added = tf.clip_by_value(
-            updated_added, 
-            feature_mins, 
-            feature_maxs
-        )
-        
-        # Assign back using tf.Variable's assign method
-        X_extended_tensor[:, seq_length:, :].assign(updated_added)
+        for _ in tqdm(range(num_steps)):
+            with tf.GradientTape() as tape:
+                predictions = model(X_adv_var)
+                loss = tf.reduce_mean(
+                    tf.keras.losses.sparse_categorical_crossentropy(y_tensor, predictions))
+            
+            gradients = tape.gradient(loss, X_adv_var)
+            
+            if gradients is None:
+                raise ValueError("Gradients are None - check model architecture")
+            
+            # Create updated tensor
+            perturbation = epsilon * tf.sign(gradients[:, pos, :])
+            new_values = X_adv_var[:, pos, :] + perturbation
+            new_values = tf.clip_by_value(new_values, *feature_range)
+            
+            # Update using variable assignment
+            X_adv_var[:, pos, :].assign(new_values)
     
-    return X_extended_tensor.numpy()
-
-
+    return X_adv_var.numpy()
 
 def concat_fgsm_attack_sim(model, X, y, epsilon=0.1, num_steps=30, num_random_transactions=5, random_seed=42):
     """
-    Performs the Concat FGSM (simultaneous) attack by first adding random transactions
-    and then applying FGSM to the entire sequence simultaneously.
-    
-    Args:
-        model: The trained TensorFlow model.
-        X: The original transaction sequences.
-        y: The true labels for the sequences.
-        epsilon: The magnitude of the perturbation.
-        num_steps: Number of steps for perturbation.
-        num_random_transactions: Number of random transactions to add to each sequence.
-        random_seed: Random seed for reproducibility.
-        
-    Returns:
-        X_adv: The adversarial examples with added and perturbed transactions.
+    Concat FGSM [sim] - Simultaneous version with proper variable handling
     """
     np.random.seed(random_seed)
     tf.random.set_seed(random_seed)
     
     batch_size, seq_length, feature_dim = X.shape
+    feature_range = (-3.0, 3.0)
     
-    # Create a copy of the original data with extended length
-    X_extended = np.zeros((batch_size, seq_length + num_random_transactions, feature_dim))
+    # Initialize with original + random additions
+    X_adv = np.concatenate([
+        X,
+        np.random.uniform(*feature_range, size=(batch_size, num_random_transactions, feature_dim))
+    ], axis=1)
     
-    # Copy original sequences
-    X_extended[:, :seq_length, :] = X
-    
-    # Initialize random transactions at the end
-    feature_mins = np.min(X, axis=(0, 1))
-    feature_maxs = np.max(X, axis=(0, 1))
-    
-    for i in range(batch_size):
-        for j in range(num_random_transactions):
-            for k in range(feature_dim):
-                X_extended[i, seq_length + j, k] = np.random.uniform(
-                    feature_mins[k], feature_maxs[k]
-                )
-    
-    # Convert to tensor for gradient computation
-    X_extended_tensor = tf.convert_to_tensor(X_extended, dtype=tf.float32)
+    X_adv_var = tf.Variable(X_adv, dtype=tf.float32)
     y_tensor = tf.convert_to_tensor(y, dtype=tf.int32)
     
-    # Apply FGSM to the entire sequence (including both original and added transactions)
+    # Perturb all added transactions simultaneously
     for _ in tqdm(range(num_steps)):
         with tf.GradientTape() as tape:
-            # Watch the entire sequence
-            tape.watch(X_extended_tensor)
-            
-            # Get the model's prediction
-            predictions = model(X_extended_tensor)
-            loss = sparse_categorical_crossentropy(y_tensor, predictions)
+            predictions = model(X_adv_var)
+            loss = tf.reduce_mean(
+                tf.keras.losses.sparse_categorical_crossentropy(y_tensor, predictions))
         
-        # Calculate gradients
-        gradients = tape.gradient(loss, X_extended_tensor)
+        gradients = tape.gradient(loss, X_adv_var)
         
-        # Get the sign of the gradients
-        perturbations = tf.sign(gradients)
+        if gradients is None:
+            raise ValueError("Gradients are None - check model architecture")
         
-        # Update the entire sequence
-        X_extended_tensor = X_extended_tensor + epsilon * perturbations
+        # Update all added transactions
+        perturbation = epsilon * tf.sign(gradients[:, seq_length:, :])
+        new_values = X_adv_var[:, seq_length:, :] + perturbation
+        new_values = tf.clip_by_value(new_values, *feature_range)
         
-        # Clip if necessary
-        X_extended_tensor = tf.clip_by_value(
-            X_extended_tensor, 
-            tf.convert_to_tensor(feature_mins, dtype=tf.float32),
-            tf.convert_to_tensor(feature_maxs, dtype=tf.float32)
-        )
+        # Variable assignment
+        X_adv_var[:, seq_length:, :].assign(new_values)
     
-    return X_extended_tensor.numpy()
+    return X_adv_var.numpy()
 
 def visualize_perturbations(original, adv_seq, adv_sim):
     """
