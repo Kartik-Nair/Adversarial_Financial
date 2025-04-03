@@ -346,3 +346,61 @@ def lm_fgsm_attack(model, sequence, target_label, lm_model, epsilon=0.01, perple
     adversarial_sequence[0] = adversarial_token
 
     return adversarial_sequence
+
+
+
+# Assuming we already have a trained model after running the original training code
+# Evaluate model on the original data
+def evaluate_adversarial_attack(model, X_train, y_train, attack_fn, epsilon=0.01, num_tokens=4):
+    """
+    Evaluates the adversarial attack using metrics like accuracy and probability difference.
+    
+    Args:
+        model: The target model.
+        X_train: Original sequences of transactions.
+        y_train: Target labels.
+        attack_fn: Attack function to apply (e.g., fgsm_attack).
+        epsilon: Perturbation strength for FGSM.
+        num_tokens: Number of tokens to add for concat-based attacks.
+        
+    Returns:
+        dict: Evaluation metrics including adversarial accuracy.
+    """
+    # Generate adversarial sequences
+    adversarial_sequences = []
+    for i in range(len(X_train)):
+        sequence = X_train[i]
+        target_label = y_train[i].unsqueeze(0)  # Add batch dimension
+        adversarial_sequence = attack_fn(model, sequence, target_label, epsilon, num_tokens)
+        adversarial_sequences.append(adversarial_sequence)
+    
+    # Convert to tensor
+    adversarial_sequences = torch.stack(adversarial_sequences)
+
+    # Calculate adversarial accuracy
+    original_output = model(X_train)
+    adversarial_output = model(adversarial_sequences)
+
+    _, original_pred = torch.max(original_output, dim=1)
+    _, adversarial_pred = torch.max(adversarial_output, dim=1)
+
+    adversarial_accuracy = torch.sum(original_pred == adversarial_pred).float() / original_pred.size(0)
+    
+    # Return metrics
+    return {'adversarial_accuracy': adversarial_accuracy.item()}
+
+# Run attacks and evaluate
+attacks = [fgsm_attack, concat_fgsm_attack, concat_sampling_fool_attack, concat_fgsm_sequential_attack]
+
+results = {}
+for attack in attacks:
+    print(f"Running evaluation for {attack.__name__}...")
+    metrics = evaluate_adversarial_attack(model, X_train_tensor, y_train_tensor, attack, epsilon=0.01, num_tokens=4)
+    results[attack.__name__] = metrics
+    print(f"Evaluation metrics for {attack.__name__}: {metrics}")
+
+# Display the results
+import pandas as pd
+results_df = pd.DataFrame(results)
+import ace_tools as tools; tools.display_dataframe_to_user(name="Adversarial Attack Evaluation Results", dataframe=results_df)
+
