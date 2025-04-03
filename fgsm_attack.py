@@ -62,15 +62,16 @@ def preprocess_rosbank_data(df):
 
 
 # FGSM Attack Function
-def fgsm_attack(model, X, y, epsilon=0.1):
+def fgsm_attack(model, X, y, epsilon=1.0, n_steps=30):
     """
-    Perform the Fast Gradient Sign Method (FGSM) attack on the input data.
+    Perform the Fast Gradient Sign Method (FGSM) attack with multiple steps.
     
     Args:
         model: The trained model.
         X: Input features (batch of sequences).
         y: True labels.
-        epsilon: Perturbation magnitude.
+        epsilon: Step size (perturbation magnitude).
+        n_steps: Number of steps for the iterative attack.
     
     Returns:
         perturbed_X: The adversarially perturbed inputs.
@@ -78,26 +79,31 @@ def fgsm_attack(model, X, y, epsilon=0.1):
     # Set requires_grad attribute of input to compute gradients
     X.requires_grad = True
     
-    # Forward pass the data through the model
-    output = model(X)
+    # Start the attack with the original input
+    perturbed_X = X.clone()
     
-    # Compute the loss
-    loss = F.cross_entropy(output, y)
-    
-    # Backpropagate the loss to get the gradients of the input
-    model.zero_grad()
-    loss.backward()
-    
-    # Get the sign of the gradients
-    sign_data_grad = X.grad.data.sign()
-    
-    # Create the adversarial example by perturbing the input
-    perturbed_X = X + epsilon * sign_data_grad
-    
-    # Return the perturbed input (clamped within a valid range if needed)
-    perturbed_X = torch.clamp(perturbed_X, 0, 1)  # Clamp to valid range if necessary
+    for step in range(n_steps):
+        # Forward pass the data through the model
+        output = model(perturbed_X)
+        
+        # Compute the loss
+        loss = F.cross_entropy(output, y)
+        
+        # Backpropagate the loss to get the gradients of the input
+        model.zero_grad()
+        loss.backward()
+        
+        # Get the sign of the gradients
+        sign_data_grad = perturbed_X.grad.data.sign()
+        
+        # Apply the perturbation
+        perturbed_X = perturbed_X + epsilon * sign_data_grad
+        
+        # Clamp the perturbed input to ensure it's within a valid range
+        perturbed_X = torch.clamp(perturbed_X, 0, 1)
     
     return perturbed_X
+
 
 
 # Evaluate the model under attack
@@ -159,7 +165,7 @@ test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 # Now, let's use the `evaluate_model_under_attack` function on the test data:
 epsilon = 1  # You can adjust the perturbation magnitude
 model = torch.load('best_GRU_epoch_11.pth', weights_only=False)
-for i in tqdm(range(30), desc="Evaluating adversarial examples", leave=False):
-    attack_accuracy, attack_loss = evaluate_model_under_attack(model, test_loader, epsilon)
-    print(f"Adversarial Test Accuracy: {attack_accuracy*100:.2f}%")
-    print(f"Adversarial Test Loss: {attack_loss:.4f}")
+
+attack_accuracy, attack_loss = evaluate_model_under_attack(model, test_loader, epsilon)
+print(f"Adversarial Test Accuracy: {attack_accuracy*100:.2f}%")
+print(f"Adversarial Test Loss: {attack_loss:.4f}")
