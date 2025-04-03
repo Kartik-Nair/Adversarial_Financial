@@ -9,9 +9,11 @@ from torch.nn.utils.rnn import pad_sequence
 import torch.nn.functional as F
 from datasets import load_dataset
 from tqdm import tqdm
+from torch.utils.data import DataLoader, TensorDataset
 
 # Assuming CrossEntropyLoss as the loss function
 loss_function = nn.CrossEntropyLoss()
+
 
 def preprocess_rosbank_data(df):
     """
@@ -35,7 +37,7 @@ def preprocess_rosbank_data(df):
     scaler = StandardScaler()
     df['amount'] = scaler.fit_transform(df[['amount']]) 
 
-    # Group transactions by user (assuming ⁠ cl_id⁠  as user ID) and treat each user’s transactions as a sequence
+    # Group transactions by user (assuming ⁠ cl_id⁠  as user ID) and treat each user's transactions as a sequence
     grouped = df.groupby('cl_id')
 
     # Convert the features and target to lists of tensors (for sequence input to RNN)
@@ -57,7 +59,6 @@ def preprocess_rosbank_data(df):
 
 # Example: Load the dataset from Hugging Face
 train_dataset = load_dataset("dllllb/rosbank-churn", "train")
-print(train_dataset)
 train_data = train_dataset['train']
 df_train = pd.DataFrame(train_data)
 train_df, test_df = train_test_split(df_train, test_size=0.35, random_state=42)
@@ -71,9 +72,17 @@ X_train_tensor, X_test_tensor, y_train_tensor, y_test_tensor = train_test_split(
     X_all_tensor, y_all_tensor, test_size=0.35, random_state=42
 )
 
+# Create DataLoaders for batched training
+batch_size = 1024
+train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
 # Define GRU Model (as per the paper)
 class GRUClassifier(nn.Module):
-    def __init__(self, input_size, embed_dim=128, hidden_dim=256):
+    def __init__(self, input_size, hidden_dim=256):
         super(GRUClassifier, self).__init__()
         self.gru = nn.GRU(input_size, hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, 2)  # Binary classification (0 or 1)
@@ -91,42 +100,38 @@ model = GRUClassifier(input_size)
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Evaluation function to compute test accuracy and loss
-def evaluate_model(model, X_test, y_test):
+def evaluate_model(model, data_loader):
     """
-    Evaluate the model on the test set.
+    Evaluate the model on the test set using batched processing.
     
     Args:
         model: The trained model.
-        X_test: Features of the test set (sequences).
-        y_test: Target labels for the test set.
+        data_loader: DataLoader for the evaluation data.
     
     Returns:
-        accuracy: Accuracy of the model on the test set.
-        loss: Loss of the model on the test set.
+        accuracy: Accuracy of the model on the dataset.
+        loss: Loss of the model on the dataset.
     """
     model.eval()  # Set the model to evaluation mode
-    test_loss = 0
+    total_loss = 0
     correct_predictions = 0
     total = 0
     
     with torch.no_grad():  # No need to compute gradients during evaluation
-        for i in range(len(X_test)):
-            sequence = X_test[i]
-            target_label = y_test[i].unsqueeze(0)  # Add batch dimension
-            
+        for sequences, targets in data_loader:
             # Forward pass
-            output = model(sequence.unsqueeze(0))  # Add batch dimension for a single sample
-            loss = loss_function(output, target_label)
+            outputs = model(sequences)
+            loss = loss_function(outputs, targets)
             
-            test_loss += loss.item()  # Accumulate loss
+            total_loss += loss.item() * targets.size(0)  # Multiply by batch size for weighted average
             
             # Get predictions
-            _, predicted = torch.max(output, 1)
-            correct_predictions += (predicted == target_label).sum().item()
-            total += target_label.size(0)
+            _, predicted = torch.max(outputs, 1)
+            correct_predictions += (predicted == targets).sum().item()
+            total += targets.size(0)
     
-    accuracy = correct_predictions / total  # Accuracy on the test set
-    avg_loss = test_loss / len(X_test)  # Average loss on the test set
+    accuracy = correct_predictions / total
+    avg_loss = total_loss / total
     
     return accuracy, avg_loss
 
@@ -142,17 +147,15 @@ def save_model(model, file_name="model.pth"):
     torch.save(model, file_name)
     print(f"Model saved as {file_name}")
 
-# Training Loop (with Test Accuracy and Loss after each epoch, and model checkpointing)
-def train_model(model, X_train, y_train, X_test, y_test, optimizer, num_epochs=10):
+# Training Loop with batched processing
+def train_model(model, train_loader, test_loader, optimizer, num_epochs=10):
     """
-    Train the GRU model and save the entire model after each epoch.
+    Train the GRU model with batched processing and save the entire model after each epoch.
     
     Args:
         model: The target model.
-        X_train: Features of the training set (sequences).
-        y_train: Target labels for the training set.
-        X_test: Features of the test set (sequences).
-        y_test: Target labels for the test set.
+        train_loader: DataLoader for the training data.
+        test_loader: DataLoader for the test data.
         optimizer: The optimizer to use for training.
         num_epochs: Number of epochs to train.
     
@@ -163,18 +166,16 @@ def train_model(model, X_train, y_train, X_test, y_test, optimizer, num_epochs=1
     
     for epoch in range(num_epochs):
         epoch_loss = 0
+        total_samples = 0
         
         # Use tqdm to add a progress bar to the training loop
-        for i in tqdm(range(len(X_train)), desc=f'Epoch {epoch+1}/{num_epochs}', leave=False):
-            sequence = X_train[i]
-            target_label = y_train[i].unsqueeze(0)  # Add batch dimension
-
+        for sequences, targets in tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}', leave=False):
             # Zero gradients from previous step
             optimizer.zero_grad()
 
             # Forward pass
-            output = model(sequence.unsqueeze(0))  # Add batch dimension for a single sample
-            loss = loss_function(output, target_label)
+            outputs = model(sequences)
+            loss = loss_function(outputs, targets)
 
             # Backward pass
             loss.backward()
@@ -182,22 +183,25 @@ def train_model(model, X_train, y_train, X_test, y_test, optimizer, num_epochs=1
             # Optimizer step
             optimizer.step()
 
-            epoch_loss += loss.item()
+            epoch_loss += loss.item() * targets.size(0)  # Multiply by batch size for weighted average
+            total_samples += targets.size(0)
         
         # Print training loss after each epoch
-        print(f"Epoch {epoch+1}/{num_epochs}, Training Loss: {epoch_loss/len(X_train)}")
+        print(f"Epoch {epoch+1}/{num_epochs}, Training Loss: {epoch_loss/total_samples:.4f}")
         
-        train_accuracy, train_loss = evaluate_model(model, X_train, y_train)
+        # Evaluate on the training set
+        train_accuracy, train_loss = evaluate_model(model, train_loader)
         print(f"Epoch {epoch+1}/{num_epochs}, Train Accuracy: {train_accuracy*100:.2f}%, Train Loss: {train_loss:.4f}")
-        # Evaluate on the test set after each epoch
-        test_accuracy, test_loss = evaluate_model(model, X_test, y_test)
+        
+        # Evaluate on the test set
+        test_accuracy, test_loss = evaluate_model(model, test_loader)
         print(f"Epoch {epoch+1}/{num_epochs}, Test Accuracy: {test_accuracy*100:.2f}%, Test Loss: {test_loss:.4f}")
         
         # Save the entire model after each epoch
-        save_model(model, f"model_epoch_{epoch+1}.pth")  # Save the model with the epoch number in the file name
+        save_model(model, f"GRU_epoch_{epoch+1}.pth")
     
     return model
 
 
-# Train the model on original data first
-model = train_model(model, X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor, optimizer, num_epochs=10)
+# Train the model with batching
+model = train_model(model, train_loader, test_loader, optimizer, num_epochs=10)
