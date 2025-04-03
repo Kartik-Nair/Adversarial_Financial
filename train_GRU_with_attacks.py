@@ -231,7 +231,7 @@ def fgsm_attack(model, sequence, target_label, epsilon=0.01, num_tokens=4):
 
     # Reconstruct the sequence with perturbed embeddings
     adversarial_sequence = sequence.clone()
-    adversarial_sequence[0] = perturbed_embedding
+    adversarial_sequence[0] = perturbed_embedding[0]
     return adversarial_sequence
 
 
