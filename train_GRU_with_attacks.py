@@ -92,29 +92,17 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 
 # Evaluation function to compute test accuracy and loss
 def evaluate_model(model, X_test, y_test):
-    """
-    Evaluate the model on the test set.
-    
-    Args:
-        model: The trained model.
-        X_test: Features of the test set (sequences).
-        y_test: Target labels for the test set.
-    
-    Returns:
-        accuracy: Accuracy of the model on the test set.
-        loss: Loss of the model on the test set.
-    """
-    model.eval()  # Set the model to evaluation mode
+    model.eval()
     test_loss = 0
     correct_predictions = 0
     total = 0
     
-    with torch.no_grad():  # No need to compute gradients during evaluation
+    with torch.no_grad():  # Disable gradient calculations during evaluation
         for i in range(len(X_test)):
             sequence = X_test[i]
             target_label = y_test[i].unsqueeze(0)  # Add batch dimension
             
-            # Forward pass
+            # Forward pass without tracking gradients
             output = model(sequence.unsqueeze(0))  # Add batch dimension for a single sample
             loss = loss_function(output, target_label)
             
@@ -130,17 +118,6 @@ def evaluate_model(model, X_test, y_test):
     
     return accuracy, avg_loss
 
-# Function to save the entire model
-def save_model(model, file_name="model.pth"):
-    """
-    Save the entire model (architecture + parameters).
-    
-    Args:
-        model: The trained model.
-        file_name: Name of the model file to save.
-    """
-    torch.save(model, file_name)
-    print(f"Model saved as {file_name}")
 
 # Training Loop (with Test Accuracy and Loss after each epoch, and model checkpointing)
 def train_model(model, X_train, y_train, X_test, y_test, optimizer, num_epochs=10):
@@ -203,36 +180,37 @@ def train_model(model, X_train, y_train, X_test, y_test, optimizer, num_epochs=1
 # model = train_model(model, X_train_tensor, y_train_tensor, X_test_tensor, y_test_tensor, optimizer, num_epochs=10)
 
 
-def fgsm_attack(model, sequence, target_label, epsilon=0.01, num_tokens=4):
-    """
-    Generates an adversarial example by perturbing token embeddings using FGSM.
+# def fgsm_attack(model, sequence, target_label, epsilon=0.01, num_tokens=4):
+#     """
+#     Generates an adversarial example by perturbing token embeddings using FGSM.
     
-    Args:
-        model: The target model.
-        sequence: The input sequence of transaction codes.
-        target_label: The target label for the adversarial attack.
-        epsilon: Perturbation strength.
+#     Args:
+#         model: The target model.
+#         sequence: The input sequence of transaction codes.
+#         target_label: The target label for the adversarial attack.
+#         epsilon: Perturbation strength.
 
-    Returns:
-        adversarial_sequence: The generated adversarial sequence.
-    """
-    sequence_embedding = sequence
-    sequence_embedding.requires_grad = True
+#     Returns:
+#         adversarial_sequence: The generated adversarial sequence.
+#     """
+#     sequence_embedding = sequence
+#     sequence_embedding.requires_grad = True
 
-    # Forward pass
-    outputs = model(sequence.unsqueeze(0))  # Add batch dimension
-    loss = loss_function(outputs, target_label)
+#     # Forward pass
+#     outputs = model(sequence.unsqueeze(0))  # Add batch dimension
+#     loss = loss_function(outputs, target_label)
 
-    # Backward pass and perturb the sequence
-    model.zero_grad()
-    loss.backward()
-    grad = sequence_embedding.grad
-    perturbed_embedding = sequence_embedding + epsilon * grad.sign()
+#     # Backward pass and perturb the sequence
+#     model.zero_grad()
+#     loss.backward()
+#     grad = sequence_embedding.grad
+#     perturbed_embedding = sequence_embedding + epsilon * grad.sign()
 
-    # Reconstruct the sequence with perturbed embeddings
-    adversarial_sequence = sequence.clone()
-    adversarial_sequence[0] = perturbed_embedding[0]
-    return adversarial_sequence
+#     # Reconstruct the sequence with perturbed embeddings
+#     adversarial_sequence = sequence.clone()
+#     # adversarial_sequence[0] = perturbed_embedding
+#     adversarial_sequence[0] = perturbed_embedding[0] 
+#     return adversarial_sequence
 
 
 def concat_fgsm_attack(model, sequence, target_label, num_tokens=4, epsilon=0.01):
@@ -354,6 +332,45 @@ def lm_fgsm_attack(model, sequence, target_label, lm_model, epsilon=0.01, perple
 
 # Assuming we already have a trained model after running the original training code
 # Evaluate model on the original data
+# def evaluate_adversarial_attack(model, X_train, y_train, attack_fn, epsilon=0.01, num_tokens=4):
+#     """
+#     Evaluates the adversarial attack using metrics like accuracy and probability difference.
+    
+#     Args:
+#         model: The target model.
+#         X_train: Original sequences of transactions.
+#         y_train: Target labels.
+#         attack_fn: Attack function to apply (e.g., fgsm_attack).
+#         epsilon: Perturbation strength for FGSM.
+#         num_tokens: Number of tokens to add for concat-based attacks.
+        
+#     Returns:
+#         dict: Evaluation metrics including adversarial accuracy.
+#     """
+#     # Generate adversarial sequences
+#     adversarial_sequences = []
+#     for i in range(len(X_train)):
+#         sequence = X_train[i]
+#         target_label = y_train[i].unsqueeze(0)  # Add batch dimension
+#         adversarial_sequence = attack_fn(model, sequence, target_label, epsilon, num_tokens)
+#         adversarial_sequences.append(adversarial_sequence)
+    
+#     # Convert to tensor
+#     adversarial_sequences = torch.stack(adversarial_sequences)
+
+#     # Calculate adversarial accuracy
+#     original_output = model(X_train)
+#     adversarial_output = model(adversarial_sequences)
+
+#     _, original_pred = torch.max(original_output, dim=1)
+#     _, adversarial_pred = torch.max(adversarial_output, dim=1)
+
+#     adversarial_accuracy = torch.sum(original_pred == adversarial_pred).float() / original_pred.size(0)
+    
+#     # Return metrics
+#     return {'adversarial_accuracy': adversarial_accuracy.item()}
+
+
 def evaluate_adversarial_attack(model, X_train, y_train, attack_fn, epsilon=0.01, num_tokens=4):
     """
     Evaluates the adversarial attack using metrics like accuracy and probability difference.
@@ -369,28 +386,113 @@ def evaluate_adversarial_attack(model, X_train, y_train, attack_fn, epsilon=0.01
     Returns:
         dict: Evaluation metrics including adversarial accuracy.
     """
-    # Generate adversarial sequences
+    model.eval()  # Ensure the model is in evaluation mode
     adversarial_sequences = []
-    for i in range(len(X_train)):
-        sequence = X_train[i]
-        target_label = y_train[i].unsqueeze(0)  # Add batch dimension
-        adversarial_sequence = attack_fn(model, sequence, target_label, epsilon, num_tokens)
-        adversarial_sequences.append(adversarial_sequence)
+
+    correct_predictions = 0
+    total = 0
+    total_loss = 0
+
+    with torch.no_grad():  # No need to compute gradients during evaluation
+        for i in range(len(X_train)):
+            sequence = X_train[i]
+            target_label = y_train[i].unsqueeze(0)  # Add batch dimension
+
+            # Apply the adversarial attack
+            adversarial_sequence = attack_fn(model, sequence, target_label, epsilon, num_tokens)
+            adversarial_sequences.append(adversarial_sequence)
+
+            # Forward pass on original and adversarial sequences
+            output = model(sequence.unsqueeze(0))  # Add batch dimension
+            adversarial_output = model(adversarial_sequence.unsqueeze(0))  # Same for adversarial sequence
+
+            # Calculate loss for original and adversarial predictions
+            loss = loss_function(output, target_label)
+            adversarial_loss = loss_function(adversarial_output, target_label)
+
+            total_loss += loss.item()
+            total_loss += adversarial_loss.item()
+
+            # Get predictions
+            _, original_pred = torch.max(output, 1)
+            _, adversarial_pred = torch.max(adversarial_output, 1)
+
+            correct_predictions += (original_pred == target_label).sum().item()
+            correct_predictions += (adversarial_pred == target_label).sum().item()
+
+            total += target_label.size(0)
+
+    # Average loss
+    avg_loss = total_loss / (2 * len(X_train))  # As we calculate for both original and adversarial
+
+    # Adversarial accuracy
+    adversarial_accuracy = correct_predictions / total
+
+    return {'adversarial_accuracy': adversarial_accuracy, 'avg_loss': avg_loss}
+
+
+
+
+
+
+
+def fgsm_attack(model, sequence, target_label, epsilon=0.01, num_tokens=4):
+    """
+    Generates an adversarial example by perturbing token embeddings using FGSM.
     
-    # Convert to tensor
-    adversarial_sequences = torch.stack(adversarial_sequences)
-
-    # Calculate adversarial accuracy
-    original_output = model(X_train)
-    adversarial_output = model(adversarial_sequences)
-
-    _, original_pred = torch.max(original_output, dim=1)
-    _, adversarial_pred = torch.max(adversarial_output, dim=1)
-
-    adversarial_accuracy = torch.sum(original_pred == adversarial_pred).float() / original_pred.size(0)
+    Args:
+        model: The target model.
+        sequence: The input sequence of transaction codes.
+        target_label: The target label for the adversarial attack.
+        epsilon: Perturbation strength.
+        num_tokens: Number of tokens to perturb.
+    Returns:
+        adversarial_sequence: The generated adversarial sequence.
+    """
+    # Ensure tensor is on the correct device (CPU or GPU)
+    device = next(model.parameters()).device
+    sequence = sequence.clone().detach().to(device)  # Create a copy that we can modify
+    target_label = target_label.to(device)
     
-    # Return metrics
-    return {'adversarial_accuracy': adversarial_accuracy.item()}
+    # Enable gradients for the sequence
+    sequence.requires_grad = True
+    
+    # Set model to eval mode and disable gradients for model parameters
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad = False
+    
+    # Forward pass
+    outputs = model(sequence.unsqueeze(0))  # Add batch dimension
+    
+    outputs.requires_grad = True  # Enable gradients for the output
+    model.zero_grad() # Zero gradients from previous step
+    # Calculate loss - don't unsqueeze target_label
+    loss = loss_function(outputs, target_label)
+    
+    # Backward pass to compute gradients (only for the input, not model params)
+    loss.backward()
+    
+    # Get the gradient data
+    grad_data = sequence.grad.data
+    
+    # Create the perturbed sequence
+    adversarial_sequence = sequence.detach().clone()
+    
+    # Only perturb the first num_tokens tokens
+    for i in range(min(num_tokens, len(sequence))):
+        adversarial_sequence[i] = sequence[i] + epsilon * grad_data[i].sign()
+    
+    return adversarial_sequence
+
+
+
+
+
+
+
+
+
 
 # Run attacks and evaluate
 attacks = [fgsm_attack, concat_fgsm_attack, concat_sampling_fool_attack, concat_fgsm_sequential_attack]
@@ -417,4 +519,10 @@ import ace_tools as tools; tools.display_dataframe_to_user(name="Adversarial Att
 # Epoch 2/10, Train Accuracy: 54.62%, Train Loss: 0.6887
 # Epoch 2/10, Test Accuracy: 56.74%, Test Loss: 0.6852
 # Model saved as model_epoch_2.pth
+
+
+
+
+
+
 
