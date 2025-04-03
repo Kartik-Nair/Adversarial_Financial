@@ -1,1 +1,10 @@
 .DS_Store
+*.pth
+*.pyc
+__pycache__/
+*.egg-info/
+*.egg
+*.log
+*.json
+*.csv
+*.tsv
